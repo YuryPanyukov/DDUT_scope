@@ -1,0 +1,6 @@
+PyQt5>=5.15.0
+# Qt 5.15.3+ не публикуется колёсами для Windows: без этого ограничения pip и uv
+# на Windows не могут установить PyQt5 («no wheel for the current platform»).
+# На Linux и macOS условие не действует, там ставится свежая Qt5.
+PyQt5-Qt5<5.15.3; sys_platform == "win32"
+openpyxl>=3.0.0

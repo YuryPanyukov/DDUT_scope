@@ -1,0 +1,56 @@
+[project]
+name = "ddut-scope"
+version = "1.0.0"
+description = "Оценочный комитет — сбор и обработка оценок преподавателей (PyQt5 + openpyxl)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "PyQt5>=5.15.0",
+    # Qt 5.15.3+ не публикуется колёсами для Windows: без этой строки uv берёт
+    # pyqt5-qt5 5.15.19 и установка на Windows падает («no wheel for the current
+    # platform»). На Linux и macOS ограничение не действует.
+    "PyQt5-Qt5<5.15.3; sys_platform == 'win32'",
+    "openpyxl>=3.0.0",
+]
+
+[project.scripts]
+main = "evaluation_app.main:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9",
+]
+# Сборка exe: ставится только когда нужна (uv sync --group build).
+build = [
+    "pyinstaller>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["evaluation_app"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+exclude = ["real_data", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+    "DTZ",   # локальное время уместно в десктопном приложении
+    "BLE001", # файловые операции и openpyxl кидают разные исключения
+    "S110",  # осознанный try/except/pass при освобождении ресурсов
+    "PYI",   # правила для stub-файлов мешают переопределениям методов PyQt
+    "RUF001", # кириллица в строках и комментариях
+    "RUF002",
+    "RUF003",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"

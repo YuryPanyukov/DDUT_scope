@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Повторный push в ту же ветку отменяет предыдущий незавершённый прогон.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux — основная проверка (линтер + тесты).
+          - os: ubuntu-latest
+            python: "3.11"
+          # Windows — проверяет ограничение PyQt5-Qt5<5.15.3: без него установка
+          # на Windows падает, потому что Qt 5.15.3+ не публикуется колёсами.
+          - os: windows-latest
+            python: "3.11"
+    env:
+      # Тесты интерфейса создают QApplication — окна на раннере не нужны.
+      QT_QPA_PLATFORM: offscreen
+      # В выводе тестов есть кириллица: без этого на Windows ломается кодировка.
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Системные библиотеки Qt (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 libfontconfig1
+
+      - name: Установить uv и Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+
+      - name: Проверить, что uv.lock соответствует pyproject.toml
+        run: uv lock --check
+
+      - name: Чистая установка зависимостей по uv.lock
+        run: uv sync --frozen
+
+      - name: Линтер (ruff)
+        if: runner.os == 'Linux'
+        run: uv run --frozen ruff check .
+
+      - name: Тесты (pytest)
+        run: uv run --frozen pytest
+
+  # Сборка exe для Windows. PyInstaller не кросс-компилятор, поэтому только на Windows.
+  build-windows:
+    name: Сборка exe (Windows)
+    needs: test
+    runs-on: windows-latest
+    env:
+      # Собранное приложение проверяется запуском без окна.
+      QT_QPA_PLATFORM: offscreen
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Установить uv и Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Окружение с группой сборки
+        run: uv sync --frozen --group build
+
+      - name: Собрать exe
+        run: uv run --frozen --group build python scripts/build_exe.py
+
+      - name: Проверить, что exe запускается
+        shell: bash
+        run: |
+          set -e
+          "./dist/DDUT-Scope/DDUT-Scope.exe" & pid=$!
+          sleep 10
+          if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+            echo "exe запустился и продолжает работать"
+          else
+            wait "$pid" || code=$?
+            echo "exe завершился сразу, код: ${code:-неизвестно}"
+            exit 1
+          fi
+
+      - name: Загрузить артефакт
+        uses: actions/upload-artifact@v6
+        with:
+          name: DDUT-Scope-windows
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
