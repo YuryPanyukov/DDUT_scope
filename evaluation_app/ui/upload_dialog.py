@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from evaluation_app import config
 from evaluation_app.services.excel_parser import (
     MAX_STUDENT_LABEL_LENGTH,
     MODE_CRITERIA,
@@ -211,29 +212,26 @@ class UploadPreviewDialog(QDialog):
         self._update_warnings()
         self._update_import_button()
 
-    def get_selection(self) -> list[tuple[str, str, str | None]]:
-        """Выбранные для импорта листы: (файл, лист, ФИО преподавателя)."""
-        selection: list[tuple[str, str, str | None]] = []
+    def get_selection(self) -> list[tuple[UploadSheet, str | None]]:
+        """Выбранные для импорта листы: (элемент предпросмотра, ФИО преподавателя).
+
+        Возвращается именно элемент :class:`UploadSheet`, а не путь к файлу:
+        лист уже разобран (в том числе с ручными настройками столбцов), и
+        повторное чтение файла при импорте не нужно.
+        """
+        selection: list[tuple[UploadSheet, str | None]] = []
         for row, item in enumerate(self._items):
             teacher_name = self._teacher_for_row(row)
             if teacher_name is None:
                 continue
-            selection.append((item.file_path, item.sheet_name, teacher_name))
+            selection.append((item, teacher_name))
         return selection
-
-    def teacher_name_for_row(self, row: int) -> str | None:
-        """ФИО преподавателя, выбранное для строки."""
-        return self._teacher_for_row(row)
 
     def item_at(self, row: int) -> UploadSheet | None:
         """Элемент предпросмотра по индексу строки."""
         if 0 <= row < len(self._items):
             return self._items[row]
         return None
-
-    def item_count(self) -> int:
-        """Сколько листов в диалоге."""
-        return len(self._items)
 
     # --- Внутреннее ----------------------------------------------------------
 
@@ -261,7 +259,7 @@ class UploadPreviewDialog(QDialog):
             return
 
         item = self._items[row]
-        rows = item.result.to_rows(limit=200) if item.result else []
+        rows = item.result.to_rows(limit=config.PREVIEW_ROWS_LIMIT) if item.result else []
         self.preview_table.setRowCount(len(rows))
         for index, values in enumerate(rows):
             for column, value in enumerate(values[:3]):
@@ -280,7 +278,7 @@ class UploadPreviewDialog(QDialog):
 
     def _update_import_button(self) -> None:
         selection = self.get_selection()
-        chosen = {(file_path, sheet_name) for file_path, sheet_name, _ in selection}
+        chosen = {(item.file_path, item.sheet_name) for item, _teacher in selection}
         rows_total = sum(
             item.rows_count
             for item in self._items
@@ -305,8 +303,6 @@ class ColumnMappingDialog(QDialog):
         self.setWindowTitle(f"Настройка столбцов — {sheet_name}")
         self.resize(760, 520)
 
-        self._parser = parser
-        self._sheet_name = sheet_name
         self._rows = parser.preview_rows(sheet_name)
         self._header_row = 1
         self._columns: dict[str, int] = {}
@@ -482,25 +478,3 @@ class ColumnMappingDialog(QDialog):
         if self.mode() == MODE_ROWS and missing_fields(self._columns):
             return
         self.accept()
-
-
-class TeacherSelectionDialog(QDialog):
-    """Простой диалог выбора/ввода ФИО преподавателя."""
-
-    def __init__(self, parent: QWidget | None = None, title: str = "", value: str = "") -> None:
-        super().__init__(parent)
-        self.setWindowTitle(title or "Преподаватель")
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("ФИО преподавателя:", self))
-        self.edit = QComboBox(self)
-        self.edit.setEditable(True)
-        self.edit.setCurrentText(value)
-        layout.addWidget(self.edit)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def text_value(self) -> str:
-        """Введённое ФИО."""
-        return self.edit.currentText().strip()

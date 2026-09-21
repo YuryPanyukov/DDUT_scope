@@ -118,25 +118,9 @@ class SummaryTableView(QWidget):
             self.count_label.setText(f"Записей: {len(self._records)}")
             self.title_label.setText("Сводная таблица")
 
-    def records(self) -> list[dict]:
-        """Текущие отображаемые записи."""
-        return list(self._records)
-
-    def search_text(self) -> str:
-        """Текст поиска."""
-        return self.search_edit.text()
-
     def set_search_text(self, text: str) -> None:
         """Устанавливает текст поиска."""
         self.search_edit.setText(text)
-
-    def selected_student(self) -> str:
-        """ФИО выбранной строки сводной таблицы."""
-        row = self.table.currentRow()
-        if row < 0:
-            return ""
-        item = self.table.item(row, 0)
-        return item.text() if item is not None else ""
 
     # --- Внутреннее ----------------------------------------------------------
 

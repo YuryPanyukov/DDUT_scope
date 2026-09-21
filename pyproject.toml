@@ -20,6 +20,7 @@ main = "evaluation_app.main:main"
 dev = [
     "pytest>=8.0",
     "ruff>=0.9",
+    "vulture>=2.16",
 ]
 # Сборка exe: ставится только когда нужна (uv sync --group build).
 build = [
@@ -54,3 +55,21 @@ ignore = [
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+
+[tool.vulture]
+# Поиск мёртвого кода: запускается в CI командой `uv run vulture` (без аргументов
+# берёт настройки отсюда). Тесты включены в обход специально: API, которое
+# вызывается только из тестов, живым и считается, поэтому не шумит.
+paths = ["evaluation_app", "tests", "scripts"]
+exclude = ["real_data", ".venv", "build", "dist"]
+# Минимальный порог: 60% — ровно та уверенность, с которой vulture сообщает о
+# неиспользуемых функциях, классах, методах и свойствах. Ниже начинается шум от
+# совпадений имён в строках, а выше новые мёртвые функции молча пропускаются —
+# поэтому порог нельзя поднимать. Он зафиксирован тестом
+# tests/test_packaging.py::test_dead_code_threshold_is_minimal.
+min_confidence = 60
+# Ложные срабатывания, которые нельзя убрать из кода:
+#   closeEvent — метод вызывается только Qt, а не нашим кодом;
+#   qapp — фикстура pytest, используется через параметры тестов;
+#   fill/alignment/border/number_format — атрибуты ячеек openpyxl читает сама.
+ignore_names = ["closeEvent", "qapp", "fill", "alignment", "border", "number_format"]

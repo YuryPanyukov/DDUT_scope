@@ -57,6 +57,10 @@ jobs:
         if: runner.os == 'Linux'
         run: uv run --frozen ruff check .
 
+      - name: Мёртвый код (vulture)
+        if: runner.os == 'Linux'
+        run: uv run --frozen vulture
+
       - name: Тесты (pytest)
         run: uv run --frozen pytest
 

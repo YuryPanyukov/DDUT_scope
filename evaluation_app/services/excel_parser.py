@@ -72,7 +72,6 @@ class ColumnInfo:
     group_label: str = ""  # подпись группы (верхний уровень)
     display_name: str = ""  # имя для интерфейса
     field: str = ""  # student_name / competition_name / total_score
-    is_criterion: bool = False
 
 
 @dataclass
@@ -91,11 +90,6 @@ class HeaderLayout:
     def first_header_row(self) -> int:
         """Первая строка блока заголовков."""
         return self.header_rows[0]
-
-    @property
-    def last_header_row(self) -> int:
-        """Последняя строка блока заголовков."""
-        return self.header_rows[1]
 
     @property
     def first_data_row(self) -> int:
@@ -121,7 +115,7 @@ class SheetParseResult:
     columns: dict[str, int] = field(default_factory=dict)
     mode: str = MODE_ROWS
     criterion_columns: tuple[int, ...] = ()
-    criterion_names: tuple[str, ...] = ()
+    criterion_names: tuple[str, ...] = ()  # заполняется при разборе, читается только тестами
     skipped_rows: list[int] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     rows_parsed: int = 0
@@ -273,7 +267,13 @@ class ExcelParser:
         columns: dict[str, int] | None = None,
         mode: str | None = None,
     ) -> None:
-        """Задаёт вручную структуру таблицы (используется в диалоге маппинга)."""
+        """Задаёт вручную строку заголовков, столбцы и режим разбора листа.
+
+        Значения учитываются при построении структуры листа
+        (:meth:`_layout_from_overrides`) и действуют на последующие вызовы
+        :meth:`parse_sheet`. Используется только в тестах: диалог ручного
+        определения столбцов передаёт разметку прямо в ``parse_sheet``.
+        """
         self.header_row_override = header_row
         if columns:
             self.column_overrides = {str(k): int(v) for k, v in columns.items()}
@@ -495,8 +495,6 @@ class ExcelParser:
                 info.field = "total_score"
             elif column == layout.competition_column:
                 info.field = "competition_name"
-            elif column in layout.criterion_columns:
-                info.is_criterion = True
 
     @staticmethod
     def _criteria_count(labels: dict[int, tuple[str, str, str]]) -> int:
@@ -605,7 +603,7 @@ class ExcelParser:
     ) -> tuple[int, dict[str, int]]:
         """Находит строку заголовков и соответствие «поле → номер столбца».
 
-        Используется диалогом ручного определения столбцов.
+        Вызывается при построении структуры по ручным указаниям пользователя.
         """
         if header_row is None:
             layout = self.detect_layout(worksheet)
@@ -947,7 +945,13 @@ class ExcelParser:
         sheet_names: list[str] | None = None,
         strict: bool = False,
     ) -> dict[str, SheetParseResult]:
-        """Разбирает все (или указанные) листы книги."""
+        """Разбирает все (или указанные) листы книги.
+
+        Ошибка на одном листе не прерывает разбор: лист получает пустое
+        направление и предупреждение (если ``strict`` не задан).
+        Используется только в тестах — интерфейс разбирает листы поштучно
+        через :meth:`parse_sheet` (см. :func:`collect_upload_items`).
+        """
         names = list(sheet_names) if sheet_names else self.sheet_names
         results: dict[str, SheetParseResult] = {}
         for name in names:
@@ -972,6 +976,9 @@ class ExcelParser:
 
         :param sheet_to_teacher: необязательный маппинг «лист → ФИО преподавателя».
             Значение ``None`` означает «лист не импортировать».
+
+        Используется только в тестах: интерфейс сопоставляет листы
+        преподавателям при импорте сам (см. :func:`collect_upload_items`).
         """
         sheet_names = list(sheet_to_teacher) if sheet_to_teacher else None
         results = self.parse_all(sheet_names=sheet_names)
@@ -998,11 +1005,6 @@ class ExcelParser:
                 teacher.add_direction(result.direction, replace=False)
 
         return teachers
-
-    def parse_all_directions(self) -> list[Direction]:
-        """Все листы книги как список направлений."""
-        return [result.direction for result in self.parse_all().values()]
-
 
 class _WarningSink:
     """Собирает предупреждения по листу, ограничивая их количество."""

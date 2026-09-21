@@ -36,7 +36,11 @@ class Direction:
         return evaluation
 
     def remove_evaluation(self, evaluation_id: str) -> bool:
-        """Удаляет оценку по идентификатору."""
+        """Удаляет оценку по идентификатору; ``False``, если её не было.
+
+        Используется только в тестах: при обновлении из Excel оценки
+        заменяются вместе с направлением целиком (:meth:`replace_evaluations`).
+        """
         for index, evaluation in enumerate(self.evaluations):
             if evaluation.id == evaluation_id:
                 del self.evaluations[index]
@@ -44,7 +48,11 @@ class Direction:
         return False
 
     def get_evaluation(self, evaluation_id: str) -> Evaluation | None:
-        """Возвращает оценку по идентификатору."""
+        """Возвращает оценку по идентификатору или ``None``.
+
+        Используется только в тестах: интерфейс работает с готовыми списками
+        оценок и поштучно их не ищет.
+        """
         for evaluation in self.evaluations:
             if evaluation.id == evaluation_id:
                 return evaluation
@@ -59,7 +67,12 @@ class Direction:
         return float(sum(evaluation.total_score for evaluation in self.evaluations))
 
     def student_names(self) -> list[str]:
-        """Уникальные ФИО учеников направления."""
+        """Уникальные ФИО учеников направления в порядке появления.
+
+        Используется только в тестах: подписи в интерфейсе считаются на уровне
+        преподавателя (:meth:`Teacher.student_names`) и в агрегатах
+        (:meth:`DataMerger.totals_by_teacher`).
+        """
         result: list[str] = []
         for evaluation in self.evaluations:
             if evaluation.student_name and evaluation.student_name not in result:
@@ -67,6 +80,11 @@ class Direction:
         return result
 
     def __len__(self) -> int:
+        """Число оценок в направлении.
+
+        Используется только в тестах (``len(direction)``): в коде длина берётся
+        у ``direction.evaluations``.
+        """
         return len(self.evaluations)
 
     def to_dict(self) -> dict:

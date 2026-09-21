@@ -80,7 +80,11 @@ class ExcelExporter:
         sheet_names: Iterable[str] = TEMPLATE_DIRECTIONS,
         rows: Iterable[Sequence] | None = None,
     ) -> str:
-        """Создаёт пустой шаблон Excel для заполнения преподавателем."""
+        """Создаёт шаблон Excel для заполнения преподавателем.
+
+        На каждом листе направления записывается строка заголовков и примеры
+        строк (серым курсивом) — их преподаватель заменяет своими данными.
+        """
         workbook = openpyxl.Workbook()
         workbook.remove(workbook.active)
 
@@ -182,6 +186,9 @@ class ExcelExporter:
                 ]
             )
         ExcelExporter._finish(summary, header_row=1, columns=6, widths=(32, 14, 10, 28, 28, 46))
+        # Формат баллов — как в export_summary: без «хвостовых» нулей (85, а не 85.0).
+        for row_idx in range(2, summary.max_row + 1):
+            summary.cell(row=row_idx, column=2).number_format = "0.##"
 
         used_titles = {"Сводная"}
         for teacher in project.teachers:
@@ -206,12 +213,23 @@ class ExcelExporter:
                 worksheet.cell(row=worksheet.max_row, column=3).font = HEADER_FONT
                 worksheet.append([])
             ExcelExporter._autosize(worksheet, (32, 40, 12))
+            # Баллы и «Итого по направлению» — тот же формат, что в шаблоне и
+            # сводной. В колонке есть и текстовые строки (заголовки направлений),
+            # поэтому формат ставится только числовым ячейкам.
+            for row_idx in range(1, worksheet.max_row + 1):
+                cell = worksheet.cell(row=row_idx, column=3)
+                if isinstance(cell.value, (int, float)):
+                    cell.number_format = "0.##"
 
         return ExcelExporter._save(workbook, file_path)
 
     @staticmethod
     def export_direction(direction: Direction, file_path: str) -> str:
-        """Экспортирует одно направление."""
+        """Экспортирует одно направление в отдельный файл.
+
+        Используется только в тестах: из интерфейса выгружается весь проект
+        (:meth:`export_project`).
+        """
         workbook = openpyxl.Workbook()
         worksheet = workbook.active
         worksheet.title = (direction.name or "Направление")[:31]
@@ -239,7 +257,11 @@ class ExcelExporter:
 
     @staticmethod
     def template_evaluations() -> list[Evaluation]:
-        """Примеры оценок шаблона (используется в тестах)."""
+        """Примеры оценок шаблона (строки ``TEMPLATE_ROWS``).
+
+        Используется только в тестах: сверяет число строк в созданном шаблоне
+        с ожидаемым, не зашивая его в тест повторно.
+        """
         return [
             Evaluation(student_name=row[0], competition_name=row[1], total_score=row[2])
             for row in TEMPLATE_ROWS

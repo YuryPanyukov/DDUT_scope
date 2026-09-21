@@ -118,3 +118,29 @@ def test_export_then_import_round_trip(tmp_path) -> None:
     ProjectManager.save_project(project, str(json_path))
     restored = ProjectManager.load_project(str(json_path))
     assert restored.total_score() == project.total_score()
+
+
+def test_export_project_score_number_format(tmp_path) -> None:
+    """Баллы в экспорте проекта имеют тот же формат «0.##», что и в других экспортах."""
+    project = sample_project()
+    path = tmp_path / "Формат.xlsx"
+
+    ExcelExporter.export_project(project, str(path))
+    workbook = openpyxl.load_workbook(str(path))
+
+    # Сводная: колонка «Итого баллов» (вторая), строки данных со 2-й.
+    summary = workbook["Сводная"]
+    assert summary.cell(row=2, column=2).value is not None
+    assert summary.cell(row=2, column=2).number_format == "0.##"
+
+    # Лист преподавателя: числовые ячейки третьей колонки (баллы и итог
+    # направления) отформатированы, текстовые — без числового формата.
+    sheet = workbook["Петрова А.И."]
+    numeric_formats = [
+        cell.number_format
+        for row in sheet.iter_rows(min_col=3, max_col=3)
+        for cell in row
+        if isinstance(cell.value, (int, float))
+    ]
+    assert numeric_formats, "на листе преподавателя нет числовых ячеек с баллами"
+    assert set(numeric_formats) == {"0.##"}

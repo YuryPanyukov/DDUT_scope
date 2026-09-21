@@ -168,10 +168,3 @@ def safe_file_stem(file_path: str) -> str:
 def file_name(path: str) -> str:
     """Имя файла без каталога."""
     return os.path.basename(str(path))
-
-
-def existing_path(path: str | None) -> str | None:
-    """Возвращает путь, если файл существует."""
-    if path and os.path.isfile(path):
-        return path
-    return None

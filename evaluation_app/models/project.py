@@ -59,14 +59,24 @@ class Project:
         return None
 
     def get_or_create_teacher(self, name: str) -> Teacher:
-        """Возвращает преподавателя с таким ФИО, создавая его при необходимости."""
+        """Возвращает преподавателя с таким ФИО, создавая его при необходимости.
+
+        Используется только в тестах: импорт в интерфейсе сам ищет
+        преподавателя (:meth:`find_teacher`) и добавляет нового через
+        :meth:`add_teacher`.
+        """
         teacher = self.find_teacher(name)
         if teacher is None:
             teacher = self.add_teacher(name=name)
         return teacher
 
     def replace_teacher(self, teacher_id: str, new_teacher: Teacher) -> bool:
-        """Заменяет преподавателя целиком (старые данные удаляются)."""
+        """Заменяет преподавателя целиком (старые данные удаляются).
+
+        Используется только в тестах — через
+        :meth:`ProjectManager.update_teacher`. Обновление данных из Excel
+        меняет только направления (:meth:`replace_teacher_directions`).
+        """
         index = self.get_teacher_index(teacher_id)
         if index < 0:
             return False
@@ -95,7 +105,11 @@ class Project:
     # --- Агрегаты ------------------------------------------------------------
 
     def directions(self) -> list:
-        """Все направления проекта."""
+        """Все направления проекта (по всем преподавателям).
+
+        Используется только в тестах: интерфейс и агрегаты обходят
+        ``teacher.directions`` напрямую.
+        """
         return [
             direction
             for teacher in self.teachers
@@ -111,7 +125,11 @@ class Project:
         ]
 
     def student_names(self) -> list[str]:
-        """Уникальные ФИО учеников проекта."""
+        """Уникальные ФИО учеников проекта в порядке появления.
+
+        Используется только в тестах: подписи в интерфейсе считаются на уровне
+        преподавателя, а сводная по проекту — в :meth:`DataMerger.merge_by_student`.
+        """
         result: list[str] = []
         for evaluation in self.evaluations():
             if evaluation.student_name and evaluation.student_name not in result:
@@ -119,7 +137,11 @@ class Project:
         return result
 
     def total_score(self) -> float:
-        """Сумма всех баллов проекта."""
+        """Сумма всех баллов проекта.
+
+        Используется только в тестах: статистика и экспорт считают сумму сами,
+        чтобы не обходить проект лишний раз.
+        """
         return float(sum(evaluation.total_score for evaluation in self.evaluations()))
 
     def is_empty(self) -> bool:
@@ -150,5 +172,9 @@ class Project:
         return project
 
     def clone(self) -> Project:
-        """Глубокая копия проекта (для истории изменений)."""
+        """Глубокая копия проекта, независимая от оригинала.
+
+        Используется только в тестах: история изменений хранит снимки через
+        :meth:`to_dict`/:meth:`from_dict`.
+        """
         return Project.from_dict(self.to_dict())

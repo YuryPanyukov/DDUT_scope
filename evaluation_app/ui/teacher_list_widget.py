@@ -104,7 +104,11 @@ class TeacherListWidget(QGroupBox):
         return str(item.data(Qt.UserRole) or "")
 
     def select_teacher(self, teacher_id: str) -> None:
-        """Выбирает преподавателя по идентификатору."""
+        """Выбирает преподавателя по идентификатору.
+
+        Используется только в тестах: в интерфейсе строку выбирает пользователь,
+        а после импорта список перестраивается целиком.
+        """
         for row in range(self.list_widget.count()):
             item = self.list_widget.item(row)
             if str(item.data(Qt.UserRole) or "") == teacher_id:

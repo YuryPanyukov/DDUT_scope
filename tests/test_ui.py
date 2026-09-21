@@ -204,7 +204,15 @@ def test_upload_dialog_selection(qapp, tmp_path) -> None:
 
     dialog = UploadPreviewDialog(items, [], None)
     assert dialog.mapping_table.rowCount() == 2
-    assert dialog.get_selection() == [
+
+    def selection_pairs(dialog: UploadPreviewDialog) -> list[tuple[str, str, str]]:
+        """Выбор диалога в старом формате «(файл, лист, преподаватель)» для сравнения."""
+        return [
+            (item.file_path, item.sheet_name, teacher or "")
+            for item, teacher in dialog.get_selection()
+        ]
+
+    assert selection_pairs(dialog) == [
         (str(path), "Математика", "Петрова"),
         (str(path), "Физика", "Петрова"),
     ]
@@ -212,11 +220,11 @@ def test_upload_dialog_selection(qapp, tmp_path) -> None:
     # Отмечаем второй лист как «пропустить».
     combo = dialog.mapping_table.cellWidget(1, 2)
     combo.setCurrentIndex(combo.findText(SKIP_TEACHER_LABEL))
-    assert dialog.get_selection() == [(str(path), "Математика", "Петрова")]
+    assert selection_pairs(dialog) == [(str(path), "Математика", "Петрова")]
 
     # Другому преподавателю можно назначить свой лист.
     combo.setCurrentText("Сидоров П.П.")
-    selection = dialog.get_selection()
+    selection = selection_pairs(dialog)
     assert selection[0][2] == "Петрова"
     assert selection[1][2] == "Сидоров П.П."
     dialog.close()
@@ -265,6 +273,45 @@ def test_import_selection_applies_to_project(window, tmp_path) -> None:
     bad = make_workbook(tmp_path / "Плохой.xlsx", {"Лист": [["Нет", "Нужных", "Столбцов"]]})
     _added, _replaced, warnings = window._apply_import_selection([(str(bad), "Лист", "Плохой")])
     assert warnings
+
+
+def test_collect_upload_items_reports_progress(tmp_path) -> None:
+    """Чистый сборщик листов отдаёт элементы и монотонный прогресс."""
+    from evaluation_app.ui.parse_worker import collect_upload_items
+
+    path = make_workbook(tmp_path / "Петрова.xlsx", {"Математика": STANDARD_ROWS})
+    events: list[tuple[int, int, str]] = []
+    outcome = collect_upload_items(
+        [str(path)], progress=lambda done, total, message: events.append((done, total, message))
+    )
+
+    assert [item.sheet_name for item in outcome.items] == ["Математика"]
+    assert outcome.items[0].rows_count == 1
+    assert outcome.errors == []
+    assert not outcome.cancelled
+    # Прогресс доходит до максимума (последнее событие: done == total).
+    assert events[-1][0] == events[-1][1]
+
+
+def test_collect_upload_items_collects_errors(tmp_path) -> None:
+    """Недоступные файлы попадают в outcome.errors, а не роняют разбор."""
+    from evaluation_app.ui.parse_worker import collect_upload_items
+
+    outcome = collect_upload_items([str(tmp_path / "нет-такого.xlsx")])
+    assert outcome.items == []
+    assert outcome.errors and "нет-такого.xlsx" in outcome.errors[0]
+
+
+def test_run_parse_background(qapp, tmp_path) -> None:
+    """run_parse прогоняет разбор в потоке и возвращает результат без блокировки."""
+    from evaluation_app.ui.parse_worker import run_parse
+
+    path = make_workbook(tmp_path / "Сидоров.xlsx", {"Физика": STANDARD_ROWS})
+    outcome = run_parse([str(path)], None)
+
+    assert outcome is not None
+    assert [item.sheet_name for item in outcome.items] == ["Физика"]
+    assert outcome.items[0].rows_count == 1
 
 
 def test_project_statistics_status(window) -> None:

@@ -27,10 +27,11 @@ from evaluation_app.models import Direction, Project
 from evaluation_app.services.data_merger import DataMerger
 from evaluation_app.services.data_sorter import DataSorter
 from evaluation_app.services.excel_export import ExcelExporter
-from evaluation_app.services.excel_parser import ExcelParseError, ExcelParser, SheetParseResult
+from evaluation_app.services.excel_parser import ExcelParseError, ExcelParser
 from evaluation_app.services.project_manager import ProjectError, ProjectManager
 from evaluation_app.ui.app_icon import app_icon
 from evaluation_app.ui.direction_view import DirectionView
+from evaluation_app.ui.parse_worker import collect_upload_items, run_parse
 from evaluation_app.ui.settings_dialog import AppSettingsDialog, ProjectSettingsDialog, default_academic_year
 from evaluation_app.ui.summary_table_view import SummaryTableView
 from evaluation_app.ui.teacher_list_widget import TeacherListWidget
@@ -246,9 +247,6 @@ class MainWindow(QMainWindow):
         self._refresh_direction_view()
         self._update_title()
 
-    def _refresh_teacher_list(self, selected_teacher_id: str = "") -> None:
-        self.teacher_list.set_teachers(self.project.teachers, selected_teacher_id or None)
-
     def _refresh_summary(self) -> None:
         all_records = DataMerger.merge_by_student(self.project)
         query = name_key(self._search_text)
@@ -259,7 +257,8 @@ class MainWindow(QMainWindow):
 
         self.summary_view.set_records(records, total_count=len(all_records))
 
-        stats = DataMerger.build_statistics(self.project)
+        # Сводная уже посчитана выше: статистика не пересчитывает её повторно.
+        stats = DataMerger.build_statistics(self.project, records=all_records)
         self.status_label.setText(DataMerger.format_statistics(stats))
 
     def _refresh_direction_view(self) -> None:
@@ -369,7 +368,15 @@ class MainWindow(QMainWindow):
             return
         self._last_directory = os.path.dirname(os.path.abspath(paths[0]))
 
-        items = self._collect_upload_items(paths)
+        # Разбор в фоновом потоке: окно не подвисает, виден прогресс.
+        outcome = run_parse(paths, self)
+        if outcome is None:
+            self.statusBar().showMessage("Импорт отменён", 4000)
+            return
+        if outcome.errors:
+            QMessageBox.critical(self, "Ошибка чтения файла", "\n\n".join(outcome.errors))
+
+        items = outcome.items
         if not items:
             QMessageBox.warning(self, "Импорт", "В выбранных файлах не найдено данных для импорта.")
             return
@@ -379,15 +386,21 @@ class MainWindow(QMainWindow):
         )
         dialog.configureRequested.connect(lambda row: self._on_configure_columns(dialog, row))
         if dialog.exec_() != QDialog.Accepted:
+            for parser in {item.parser for item in items if item.parser is not None}:
+                parser.close()
             return
 
         selection = dialog.get_selection()
         if not selection:
             QMessageBox.information(self, "Импорт", "Все листы отмечены как «пропустить».")
+            for parser in {item.parser for item in items if item.parser is not None}:
+                parser.close()
             return
 
         self._push_history()
-        added, replaced, warnings = self._apply_import_selection(selection)
+        added, replaced, warnings = self.apply_import_sheets(selection)
+        for parser in {item.parser for item in items if item.parser is not None}:
+            parser.close()
         self._set_dirty(True)
         self._refresh_all()
 
@@ -406,36 +419,15 @@ class MainWindow(QMainWindow):
         )
 
     def _collect_upload_items(self, paths: Sequence[str]) -> list[UploadSheet]:
-        """Читает файлы и готовит по каждому листу элемент предпросмотра."""
-        items: list[UploadSheet] = []
-        for path in paths:
-            parser = ExcelParser(path)
-            try:
-                parser.load()
-                sheet_names = parser.sheet_names
-            except ExcelParseError as exc:
-                QMessageBox.critical(
-                    self, "Ошибка чтения файла", f"{file_name(path)}\n\n{exc}"
-                )
-                continue
+        """Читает файлы и готовит по каждому листу элемент предпросмотра.
 
-            for sheet_name in sheet_names:
-                item = UploadSheet(
-                    file_path=path,
-                    sheet_name=sheet_name,
-                    parser=parser,
-                    default_teacher=parser.default_teacher_name(),
-                )
-                try:
-                    item.result = parser.parse_sheet(sheet_name)
-                except ExcelParseError as exc:
-                    item.error = str(exc)
-                    item.result = SheetParseResult(
-                        sheet_name=sheet_name,
-                        direction=Direction(name=sheet_name),
-                    )
-                items.append(item)
-        return items
+        Используется только в тестах (синхронный запасной путь): основной
+        сценарий импорта разбирает файлы в фоне через :func:`run_parse`.
+        """
+        outcome = collect_upload_items(paths)
+        if outcome.errors:
+            QMessageBox.critical(self, "Ошибка чтения файла", "\n\n".join(outcome.errors))
+        return outcome.items
 
     def _on_configure_columns(self, dialog: UploadPreviewDialog, row: int) -> None:
         """Ручное определение столбцов для листа из диалога импорта."""
@@ -466,18 +458,57 @@ class MainWindow(QMainWindow):
         dialog.refresh()
 
     def _apply_import_selection(self, selection: Sequence[tuple]) -> tuple[int, int, list[str]]:
-        """Применяет выбор диалога импорта к проекту."""
-        added = 0
-        replaced = 0
-        warnings: list[str] = []
+        """Применяет выбор диалога импорта к проекту (устаревший формат вызова).
 
+        Используется только в тестах: принимает тройки «(файл, лист, ФИО)» и
+        разбирает файлы заново. Приложение вызывает :meth:`apply_import_sheets`
+        с уже разобранными листами из диалога предпросмотра — так учитываются
+        ручные настройки столбцов и файлы не читаются второй раз.
+        """
+        sheets: list[tuple[UploadSheet, str | None]] = []
+        parse_errors: list[str] = []
         for file_path, sheet_name, teacher_name in selection:
             parser = ExcelParser(file_path)
             try:
                 parser.load()
                 result = parser.parse_sheet(sheet_name)
             except ExcelParseError as exc:
-                warnings.append(f"{file_name(file_path)} / {sheet_name}: {exc}")
+                parse_errors.append(f"{file_name(file_path)} / {sheet_name}: {exc}")
+                parser.close()
+                continue
+            parser.close()
+            sheets.append(
+                (
+                    UploadSheet(
+                        file_path=file_path,
+                        sheet_name=sheet_name,
+                        parser=parser,
+                        result=result,
+                    ),
+                    teacher_name,
+                )
+            )
+        added, replaced, warnings = self.apply_import_sheets(sheets)
+        return added, replaced, [*parse_errors, *warnings]
+
+    def apply_import_sheets(
+        self, sheets: Sequence[tuple[UploadSheet, str | None]]
+    ) -> tuple[int, int, list[str]]:
+        """Добавляет в проект уже разобранные листы из диалога импорта.
+
+        Файлы заново не читаются: результаты разбора, включая ручные настройки
+        столбцов и режима, уже лежат в ``item.result``.
+
+        :param sheets: пары «элемент предпросмотра → ФИО преподавателя».
+        :return: (добавлено преподавателей, обновлено направлений, предупреждения).
+        """
+        added = 0
+        replaced = 0
+        warnings: list[str] = []
+
+        for item, teacher_name in sheets:
+            result = item.result
+            if result is None:
                 continue
 
             teacher_name = (teacher_name or "").strip()
@@ -494,7 +525,7 @@ class MainWindow(QMainWindow):
                 teacher.directions.append(result.direction)
 
             warnings.extend(
-                f"{file_name(file_path)} / {sheet_name}: {warning}"
+                f"{file_name(item.file_path)} / {item.sheet_name}: {warning}"
                 for warning in result.warnings
             )
 
@@ -566,6 +597,7 @@ class MainWindow(QMainWindow):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
+        parser.close()
         if answer != QMessageBox.Yes:
             return
 

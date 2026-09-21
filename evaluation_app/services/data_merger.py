@@ -70,7 +70,11 @@ class DataMerger:
 
     @staticmethod
     def merge_direction(direction: Direction) -> list[dict]:
-        """Сводная таблица внутри одного направления."""
+        """Сводная таблица (ФИО → сумма баллов) внутри одного направления.
+
+        Используется только в тестах: интерфейс показывает сводную по всему
+        проекту (:meth:`merge_by_student`).
+        """
         group: dict[str, dict] = {}
         for evaluation in direction.evaluations:
             display_name = normalize_name(evaluation.student_name)
@@ -91,13 +95,21 @@ class DataMerger:
 
     @staticmethod
     def teacher_records(teacher: Teacher) -> list[dict]:
-        """Сводные данные по одному преподавателю (все его направления)."""
+        """Сводные данные по одному преподавателю (все его направления).
+
+        Используется только в тестах — обёртка над :meth:`merge_by_student`
+        для проекта из одного преподавателя.
+        """
         records = DataMerger.merge_by_student(Project(teachers=[teacher]))
         return records
 
     @staticmethod
     def totals_by_teacher(project: Project) -> list[dict]:
-        """Баллы и количество оценок в разрезе преподавателей."""
+        """Баллы и количество оценок в разрезе преподавателей.
+
+        Используется только в тестах: в интерфейсе такие итоги выводятся
+        в списке преподавателей (:class:`TeacherListWidget`).
+        """
         result = []
         for teacher in project.teachers:
             result.append(

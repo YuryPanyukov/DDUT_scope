@@ -2,7 +2,6 @@
 
 from evaluation_app.utils.file_utils import (
     ensure_dir,
-    existing_path,
     format_score,
     get_default_save_path,
     get_recent_files,
@@ -49,7 +48,6 @@ __all__ = [
     "detect_columns_exact",
     "ensure_dir",
     "exact_match_column",
-    "existing_path",
     "format_score",
     "get_default_save_path",
     "get_recent_files",

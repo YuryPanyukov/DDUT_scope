@@ -245,7 +245,11 @@ def shorten(value: Any, limit: int = 24) -> str:
 
 
 def headers_from(source: Any, row: int = 1) -> list[Any]:
-    """Достаёт заголовки из листа Excel, списка или словаря."""
+    """Достаёт заголовки из листа Excel, списка или словаря.
+
+    Используется только в тестах — через
+    :meth:`DataValidator.validate_excel_headers`.
+    """
     if source is None:
         return []
     if hasattr(source, "cell") and hasattr(source, "max_column"):
@@ -257,28 +261,27 @@ def headers_from(source: Any, row: int = 1) -> list[Any]:
 
 
 class DataValidator:
-    """Валидация данных проекта и файлов Excel (см. этап 7 плана)."""
+    """Валидация заголовков Excel-таблиц и значений баллов (см. этап 7 плана)."""
 
     @staticmethod
     def validate_excel_headers(source: Any, row: int = 1) -> bool:
-        """Проверяет, что в таблице есть обязательные столбцы."""
+        """Проверяет, что в таблице есть обязательные столбцы.
+
+        Принимает «таблицу» в любом виде (лист openpyxl, список, словарь)
+        и не зависит от модели проекта. Используется только в тестах: при
+        разборе столбцы определяет сам парсер (:func:`detect_columns`).
+        """
         mapping = detect_columns(headers_from(source, row=row))
         return not missing_fields(mapping)
 
     @staticmethod
     def validate_score(value: Any) -> bool:
-        """Проверяет, что значение баллов — число."""
+        """Проверяет, что значение баллов — число.
+
+        Используется только в тестах: при разборе баллы приводит
+        :func:`parse_score`, который сам отсеивает нечисловые значения.
+        """
         return parse_score(value) is not None
-
-    @staticmethod
-    def detect_columns(headers: Iterable[Any]) -> dict[str, int]:
-        """Публичная обёртка над :func:`detect_columns`."""
-        return detect_columns(headers)
-
-    @staticmethod
-    def missing_fields(mapping: Mapping[str, Any]) -> list[str]:
-        """Публичная обёртка над :func:`missing_fields`."""
-        return missing_fields(mapping)
 
     @staticmethod
     def describe_missing(mapping: Mapping[str, Any]) -> str:

@@ -60,7 +60,11 @@ class ProjectManager:
 
     @staticmethod
     def update_teacher(project: Project, teacher_id: str, new_teacher: Teacher) -> bool:
-        """Обновляет преподавателя: старые данные удаляются, вставляются новые."""
+        """Обновляет преподавателя: старые данные удаляются, вставляются новые.
+
+        Используется только в тестах — тонкая обёртка над
+        :meth:`Project.replace_teacher`.
+        """
         return project.replace_teacher(teacher_id, new_teacher)
 
     @staticmethod
@@ -72,10 +76,18 @@ class ProjectManager:
 
     @staticmethod
     def remove_teacher(project: Project, teacher_id: str) -> bool:
-        """Удаляет преподавателя из проекта."""
+        """Удаляет преподавателя из проекта.
+
+        Используется только в тестах: интерфейс редактирует модель напрямую
+        (:meth:`Project.remove_teacher`).
+        """
         return project.remove_teacher(teacher_id)
 
     @staticmethod
     def find_teacher(project: Project, name: str) -> Teacher | None:
-        """Поиск преподавателя по ФИО."""
+        """Поиск преподавателя по ФИО.
+
+        Используется только в тестах: интерфейс вызывает
+        :meth:`Project.find_teacher` напрямую.
+        """
         return project.find_teacher(name)

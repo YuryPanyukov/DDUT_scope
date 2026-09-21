@@ -44,7 +44,11 @@ class Teacher:
         return direction
 
     def remove_direction(self, direction_id: str) -> bool:
-        """Удаляет направление по идентификатору."""
+        """Удаляет направление по идентификатору; ``False``, если его не было.
+
+        Используется только в тестах: при обновлении из Excel направления
+        заменяются целиком (:meth:`replace_directions`).
+        """
         for index, direction in enumerate(self.directions):
             if direction.id == direction_id:
                 del self.directions[index]
@@ -56,13 +60,6 @@ class Teacher:
         key = name_key(name)
         for direction in self.directions:
             if name_key(direction.name) == key:
-                return direction
-        return None
-
-    def get_direction_by_id(self, direction_id: str) -> Direction | None:
-        """Находит направление по идентификатору."""
-        for direction in self.directions:
-            if direction.id == direction_id:
                 return direction
         return None
 
@@ -93,7 +90,11 @@ class Teacher:
         return result
 
     def matches_name(self, name: str) -> bool:
-        """Сравнение ФИО без учёта регистра и лишних пробелов."""
+        """Сравнивает ФИО без учёта регистра и лишних пробелов.
+
+        Используется только в тестах: поиск преподавателя в проекте идёт через
+        :meth:`Project.find_teacher`, который сравнивает ключи сам.
+        """
         return name_key(self.name) == name_key(name)
 
     def to_dict(self) -> dict:
