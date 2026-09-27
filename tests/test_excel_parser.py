@@ -156,6 +156,27 @@ def test_numeric_and_comma_scores(tmp_path) -> None:
     assert [e.total_score for e in result.direction.evaluations] == [85.5, 12.0, 40.25]
 
 
+def test_rows_mode_keeps_student_with_empty_score(tmp_path) -> None:
+    """Пустая ячейка баллов — 0 баллов: ученик не теряется из-за нуля (задача 2)."""
+    path = make_workbook(
+        tmp_path / "zero.xlsx",
+        {
+            "Лист": [
+                ["ФИО", "Название конкурса", "Итого"],
+                ["Иванов Иван", "Олимпиада", 85],
+                ["Петров Пётр", "Олимпиада", None],
+                ["Сидоров Сидор", "Олимпиада", ""],
+            ]
+        },
+    )
+    result = ExcelParser(path).parse_sheet("Лист")
+
+    scores = {e.student_name: e.total_score for e in result.direction.evaluations}
+    assert scores == {"Иванов Иван": 85.0, "Петров Пётр": 0.0, "Сидоров Сидор": 0.0}
+    assert result.rows_parsed == 3
+    assert not any("не является числом" in warning for warning in result.warnings)
+
+
 def test_empty_sheet_produces_warning(tmp_path) -> None:
     path = make_workbook(tmp_path / "empty.xlsx", {"Лист": [["ФИО", "Конкурс", "Итого"]]})
     result = ExcelParser(path).parse_sheet("Лист")
@@ -245,8 +266,9 @@ def test_formulas_are_read_as_values(tmp_path) -> None:
     worksheet.append(["Иванов Иван", "Олимпиада", "=40+45"])
     workbook.save(str(path))
 
-    # Без пересчёта формул Excel значение недоступно — строка пропускается,
-    # но парсер не падает.
+    # Без пересчёта формул Excel значение недоступно: строка не выбрасывается
+    # (баллы учтены как 0), о пустой ячейке есть предупреждение, парсер не падает.
     result = ExcelParser(path).parse_sheet("Лист")
-    assert result.evaluations_count == 0
-    assert result.warnings
+    assert result.evaluations_count == 1
+    assert result.direction.evaluations[0].total_score == 0
+    assert any("не указано значение баллов" in warning for warning in result.warnings)

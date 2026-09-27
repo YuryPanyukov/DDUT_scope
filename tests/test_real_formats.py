@@ -72,7 +72,10 @@ def test_matrix_layout_is_recognised(tmp_path) -> None:
         "Разовое мероприятие",
         "Очное участие в мастер-классах",
     )
-    assert result.warnings == []
+    # Формула ИТОГО (=SUM по критериям) не учитывает столбец 2 — это ошибка шаблона,
+    # о ней есть предупреждение (у Михайловой в B ноль — предупреждения нет).
+    assert any("формула ИТОГО не учитывает столбец" in warning for warning in result.warnings)
+    assert any("«за вход в систему»" in warning for warning in result.warnings)
 
 
 def test_matrix_totals_match_total_column(tmp_path) -> None:
@@ -83,11 +86,13 @@ def test_matrix_totals_match_total_column(tmp_path) -> None:
         project.teachers.append(teacher)
 
     records = {r["student_name"]: r for r in DataMerger.merge_by_student(project)}
-    assert records["Соколова Наталья Фёдоровна"]["total_score"] == 45
+    # Формула ИТОГО пропускает столбец «за вход в систему» — его баллы добавлены к итогу:
+    # Соколова 45+10, Михайлова 45+0, Лебедева 60+30.
+    assert records["Соколова Наталья Фёдоровна"]["total_score"] == 55
     assert records["Михайлов Артём Игоревич"]["total_score"] == 45
-    assert records["Лебедева Ольга Константиновна"]["total_score"] == 60
-    # «за вход в систему» в сумму не входит: у Лебедевой 30+30 = 60, а не 90
+    assert records["Лебедева Ольга Константиновна"]["total_score"] == 90
     assert records["Лебедева Ольга Константиновна"]["competitions"] == [
+        "за вход в систему",
         "Участие (внутренний)",
         "Призовое место (внутреннее)",
     ]
@@ -106,7 +111,8 @@ def test_matrix_with_numbering_row(tmp_path) -> None:
     totals = {e.student_name: 0.0 for e in direction.evaluations}
     for evaluation in direction.evaluations:
         totals[evaluation.student_name] += evaluation.total_score
-    assert totals == {"Михайлов Артём Игоревич": 60, "Кузнецов Лев Дмитриевич": 60}
+    # У Михайлова в B 10 баллов, которых нет в формуле ИТОГО — они прибавлены к итогу.
+    assert totals == {"Михайлов Артём Игоревич": 70, "Кузнецов Лев Дмитриевич": 60}
 
 
 def test_matrix_skips_totals_row(tmp_path) -> None:
@@ -145,6 +151,47 @@ def test_matrix_uses_criteria_when_total_is_empty(tmp_path) -> None:
     total = sum(e.total_score for e in result.direction.evaluations if e.student_name.startswith("Соколова"))
     assert total == 45
     assert any("не заполнена" in warning for warning in result.warnings)
+
+
+def test_matrix_adds_login_column_skipped_by_formula(tmp_path) -> None:
+    """Формула ИТОГО без столбца «за вход в систему»: баллы входа добавлены к итогу."""
+    rows = [row[:] for row in MATRIX_SHEET]
+    rows[3] = ["Соколова Наталья Фёдоровна", 10, 10, 5, 0, 30, 0, 45]  # ИТОГО = сумме критериев
+
+    path = make_workbook(tmp_path / "login.xlsx", {"Лист": rows})
+    result = ExcelParser(path).parse_sheet("Лист")
+
+    evaluations = [e for e in result.direction.evaluations if e.student_name.startswith("Соколова")]
+    scores = {e.competition_name: e.total_score for e in evaluations}
+    assert scores["за вход в систему"] == 10  # столбец B добавлен отдельной оценкой
+    assert sum(scores.values()) == 55  # 45 критериев + 10 баллов входа
+    assert any("формула ИТОГО не учитывает столбец" in w for w in result.warnings)
+
+
+def test_matrix_without_login_column_keeps_totals(tmp_path) -> None:
+    """Ноль в столбце входа не создаёт ни лишних оценок, ни предупреждений."""
+    path = make_workbook(tmp_path / "matrix.xlsx", {"Направление_1": MATRIX_SHEET})
+    result = ExcelParser(path).parse_sheet("Направление_1")
+
+    zero_login = [
+        e for e in result.direction.evaluations if e.student_name.startswith("Михайлов")
+    ]
+    assert all(e.competition_name != "за вход в систему" for e in zero_login)
+
+
+def test_matrix_keeps_student_without_any_score(tmp_path) -> None:
+    """Ученик без единого балла попадает в таблицу с 0 (задача 2)."""
+    rows = [
+        *MATRIX_SHEET,
+        ["Фёдоров Сергей Николаевич", 0, 0, 0, 0, 0, 0, 0],
+    ]
+    path = make_workbook(tmp_path / "zero.xlsx", {"Лист": rows})
+    result = ExcelParser(path).parse_sheet("Лист")
+
+    zero_student = [e for e in result.direction.evaluations if e.student_name.startswith("Фёдоров")]
+    assert len(zero_student) == 1
+    assert zero_student[0].total_score == 0
+    assert result.rows_parsed == 4
 
 
 def test_matrix_works_without_total_column(tmp_path) -> None:

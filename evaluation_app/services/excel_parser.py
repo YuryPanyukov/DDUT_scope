@@ -5,8 +5,9 @@
 1. **Строки** (шаблон из плана): ``ФИО | Название конкурса | Итого`` —
    одна строка = одна оценка ученика за конкурс.
 2. **Критерии** (оценочная матрица): ``ФИО | критерий 1 | ... | критерий N | ИТОГО``,
-   баллы начисляются в ячейках критериев. Служебные столбцы («за вход в систему»,
-   «№», «класс» и т. п.) критериями не считаются и в сумму не входят.
+   баллы начисляются в ячейках критериев. Служебные столбцы («№», «класс» и т. п.)
+   критериями не считаются; баллы служебного столбца «за вход в систему» входят
+   в итог ученика отдельной оценкой, если формула ИТОГО их не учитывает.
 
 Шапка реальных листов многоуровневая: группы направлений, названия критериев и
 строка максимумов по критериям. Поэтому структура определяется по блоку из 1–6 строк,
@@ -32,6 +33,7 @@ from evaluation_app.utils.validators import (
     detect_columns,
     exact_match_column,
     is_header_or_total_marker,
+    is_login_column,
     is_service_label,
     is_total_marker,
     match_column,
@@ -84,6 +86,9 @@ class HeaderLayout:
     total_column: int | None = None
     competition_column: int | None = None
     criterion_columns: tuple[int, ...] = ()
+    # Служебный столбец с баллами входа («за вход в систему»): формула ИТОГО
+    # реальных файлов его не учитывает, поэтому его баллы прибавляются к итогу.
+    login_column: int | None = None
     mode: str = MODE_ROWS
 
     @property
@@ -459,6 +464,7 @@ class ExcelParser:
                 layout.columns = self._build_columns(window, layout.header_rows, max_column)
 
         layout.criterion_columns = self._detect_criterion_columns(layout.columns, layout)
+        layout.login_column = self._detect_login_column(layout.columns, layout)
         self._build_display_names(layout.columns, layout.criterion_columns)
         self._assign_fields(layout)
 
@@ -583,6 +589,22 @@ class ExcelParser:
         return tuple(result)
 
     @staticmethod
+    def _detect_login_column(
+        columns: dict[int, ColumnInfo], layout: HeaderLayout
+    ) -> int | None:
+        """Служебный столбец с баллами входа («за вход в систему»).
+
+        Он не является критерием, но его баллы в реальных файлах выпадают
+        из формулы ИТОГО — при разборе они добавляются к итогу ученика.
+        """
+        for column, info in sorted(columns.items()):
+            if column == layout.student_column:
+                continue
+            if info.label and is_login_column(info.label):
+                return column
+        return None
+
+    @staticmethod
     def _build_display_names(columns: dict[int, ColumnInfo], criteria: Iterable[int]) -> None:
         """Формирует читаемые имена критериев (с группой при повторах)."""
         criteria = list(criteria)
@@ -672,6 +694,7 @@ class ExcelParser:
         )
         layout.columns = self._build_columns(window, layout.header_rows, max_column)
         layout.criterion_columns = self._detect_criterion_columns(layout.columns, layout)
+        layout.login_column = self._detect_login_column(layout.columns, layout)
         self._build_display_names(layout.columns, layout.criterion_columns)
         self._assign_fields(layout)
 
@@ -826,12 +849,18 @@ class ExcelParser:
 
             total_score = parse_score(score_value)
             if total_score is None:
-                skipped_rows.append(row_index)
-                sink.add(
-                    f"строка {row_index}: значение баллов «{score_value}» не является числом "
-                    "— строка пропущена"
-                )
-                continue
+                if score_value is None or (isinstance(score_value, str) and not score_value.strip()):
+                    # Пустая ячейка баллов — ноль баллов: ученик попадает в сводную таблицу
+                    # (сюда же попадает формула без вычисленного кэша — она и читается как пустая).
+                    total_score = 0.0
+                    sink.add(f"строка {row_index}: не указано значение баллов — учтено 0")
+                else:
+                    skipped_rows.append(row_index)
+                    sink.add(
+                        f"строка {row_index}: значение баллов «{score_value}» не является числом "
+                        "— строка пропущена"
+                    )
+                    continue
 
             if has_competition and not competition_name:
                 sink.add(f"строка {row_index}: не указано название конкурса")
@@ -860,6 +889,12 @@ class ExcelParser:
         Если на листе есть колонка ИТОГО, её значение считается контрольным:
         при расхождении со суммой критериев в проект идёт значение из файла,
         а расхождение попадает в предупреждения.
+
+        Формула ИТОГО реальных файлов (``=SUM(C:AF)``) не учитывает служебный
+        столбец «за вход в систему»: если файловое ИТОГО равно сумме критериев,
+        баллы этого столбца прибавляются к итогу отдельной оценкой с
+        предупреждением. Строка с корректным ФИО всегда даёт запись, даже
+        если ученик не набрал ни одного балла (0 баллов).
         """
         direction = Direction(name=sheet_name)
         rows_parsed = 0
@@ -895,7 +930,17 @@ class ExcelParser:
             )
             awards_sum = float(sum(points for _name, points in awards))
 
-            if awards and total_value is not None and abs(awards_sum - total_value) > 0.001:
+            # Баллы служебного столбца «за вход в систему»: читаются только при
+            # наличии колонки ИТОГО (без неё формулы, которая могла бы их
+            # пропустить, в файле нет).
+            login_points = 0.0
+            if total_value is not None and layout.login_column is not None:
+                login_points = parse_score(self._cell(values, layout.login_column)) or 0.0
+            expected_total = awards_sum + login_points
+            matches_awards = total_value is not None and abs(total_value - awards_sum) <= 0.001
+            matches_expected = total_value is not None and abs(total_value - expected_total) <= 0.001
+
+            if awards and total_value is not None and not matches_awards and not matches_expected:
                 if awards_sum > 0 and total_value <= 0:
                     sink.add(
                         f"строка {row_index}: колонка ИТОГО не заполнена ({total_value:g}) — "
@@ -916,6 +961,25 @@ class ExcelParser:
                     rows_parsed += 1
                     continue
 
+            # Файл «забыл» столбец входа в формуле ИТОГО (или, наоборот,
+            # учёл его) — баллы столбца добавляются к итогу отдельной оценкой.
+            login_recorded = False
+            if login_points > 0 and (matches_awards or matches_expected):
+                if matches_awards:
+                    login_label = shorten(layout.display_name(layout.login_column), 40)
+                    sink.add(
+                        f"строка {row_index}: формула ИТОГО не учитывает столбец «{login_label}» "
+                        f"({login_points:g} балл.) — добавлено к итогу"
+                    )
+                direction.add_evaluation(
+                    Evaluation(
+                        student_name=student_name,
+                        competition_name=layout.display_name(layout.login_column),
+                        total_score=login_points,
+                    )
+                )
+                login_recorded = True
+
             if awards:
                 for criterion_name, points in awards:
                     direction.add_evaluation(
@@ -926,14 +990,16 @@ class ExcelParser:
                         )
                     )
                 rows_parsed += 1
-            elif total_value:
-                direction.add_evaluation(
-                    Evaluation(
-                        student_name=student_name,
-                        competition_name="",
-                        total_score=total_value,
+            else:
+                if not login_recorded:
+                    # Ученик без единого балла тоже попадает в сводную таблицу.
+                    direction.add_evaluation(
+                        Evaluation(
+                            student_name=student_name,
+                            competition_name="",
+                            total_score=total_value or 0.0,
+                        )
                     )
-                )
                 rows_parsed += 1
 
         return direction, rows_parsed

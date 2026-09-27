@@ -54,8 +54,9 @@ COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
     ),
 }
 
-# Служебные столбцы листа-матрицы: они не являются критериями и не входят
-# в баллы (например, «за вход в систему» в реальных оценочных листах ДДЮТ).
+# Служебные столбцы листа-матрицы: они не являются критериями (например,
+# «за вход в систему» в реальных оценочных листах ДДЮТ). Баллы столбца входа
+# парсер прибавляет к итогу ученика отдельно — см. :func:`is_login_column`.
 # Шаблоны подобраны с учётом границ слова: «мастер-классах» — критерий,
 # а столбец «класс» — служебный.
 NON_CRITERION_LABEL_PATTERNS: tuple[str, ...] = (
@@ -77,6 +78,9 @@ NON_CRITERION_LABEL_PATTERNS: tuple[str, ...] = (
     r"(?<![\w-])фио(?![\w-])",
 )
 _NON_CRITERION_RE = re.compile("|".join(NON_CRITERION_LABEL_PATTERNS))
+# Служебный столбец с баллами входа: формула ИТОГО в реальных файлах
+# (=SUM(C:AF)) его не учитывает, поэтому парсер прибавляет его баллы сам.
+LOGIN_COLUMN_RE = re.compile(r"вход\s+в\s+систему")
 # Подписи из одних значений («30», «40/50/60», «90%») — это максимумы, а не названия.
 _VALUE_ONLY_RE = re.compile(r"^[\d\s.,%/№-]+$")
 
@@ -170,6 +174,11 @@ def is_service_label(label: Any) -> bool:
     if _VALUE_ONLY_RE.match(norm):
         return True  # нумерация столбцов или строка максимумов
     return _NON_CRITERION_RE.search(norm) is not None
+
+
+def is_login_column(label: Any) -> bool:
+    """Служебный ли это столбец с баллами входа («за вход в систему»)."""
+    return LOGIN_COLUMN_RE.search(normalize_header(label)) is not None
 
 
 def is_total_marker(value: Any) -> bool:
