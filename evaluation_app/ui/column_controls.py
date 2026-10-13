@@ -56,7 +56,16 @@ def enable_column_controls(
 def make_columns_interactive(view: QAbstractItemView) -> None:
     """Считает ширины по текущим режимам и переводит столбцы в ручной режим."""
     header = header_of(view)
-    header.resizeSections()
+    # header.resizeSections() у PyQt5 — защищённый метод, и на заголовке,
+    # созданном самим видом (не из Python), он запрещён (виден как RuntimeError
+    # «no access to protected functions» в Linux); публичные слоты вида делают
+    # то же самое для любого типа: таблицы — одним вызовом, деревья — по столбцу.
+    columns_resize = getattr(view, "resizeColumnsToContents", None)
+    if columns_resize is not None:
+        columns_resize()
+    else:
+        for index in range(header.count()):
+            view.resizeColumnToContents(index)
     for index in range(header.count()):
         header.setSectionResizeMode(index, QHeaderView.Interactive)
 
