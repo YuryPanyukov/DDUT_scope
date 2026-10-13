@@ -95,4 +95,7 @@ uv run pytest && uv run ruff check . && uv run vulture
   heredoc `<<'EOF'`, `python -X utf8` + `sys.stdout.reconfigure(encoding='utf-8')`.
 - Реальные файлы: `C:/Users/yuryp/Downloads/ДДЮТ оценки/` (тест `_real_data_folder()` смотрит
   туда же, в CI каталога нет — тест пропускается); `real_data/` в репо пуст.
-- Git: ветка master; `new_data/` untracked (в `.gitignore` его нет).
+- Git: ветка master; `new_data/Брувель_СГ.xlsx` 13.10.2026 исключён из репозитория
+  (коммит `696f07f`): файл случайно попал в git, убран из индекса через
+  `git rm --cached`, каталог добавлен в `.gitignore` рядом с `real_data/`.
+  На диске файл остаётся; в истории прошлых коммитов (`f44e8dd` и ранее) он ещё есть.
