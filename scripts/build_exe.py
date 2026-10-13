@@ -10,6 +10,10 @@
   быстрее, чем onefile, и реже попадает под ложные срабатывания антивирусов);
 * ``dist/DDUT-Scope-<версия>-windows-x64.zip`` — та же папка с краткой
   инструкцией, готовая к передаче.
+
+Релизный workflow ``.github/workflows/release.yml`` вызывает скрипт с опцией
+``--print-version``, чтобы сверить тег с версией и назвать релиз: опция просто
+печатает версию из pyproject.toml, ничего не собирая.
 """
 
 from __future__ import annotations
@@ -122,7 +126,12 @@ def folder_size(path: Path) -> float:
     return total / (1024 * 1024)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    if "--print-version" in args:
+        print(project_version())
+        return 0
+
     if sys.platform != "win32":
         print("Сборка exe рассчитана на Windows: PyInstaller не кросс-компилятор.")
         return 1

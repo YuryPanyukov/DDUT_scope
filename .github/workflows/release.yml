@@ -1,0 +1,115 @@
+name: Release
+
+# Сборка и публикация релиза: exe собирается тем же скриптом, что и в CI
+# (scripts/build_exe.py), и публикуется на GitHub Releases как архив.
+#
+# Триггеры:
+#   * push тега v<версия> — обычный релиз-путь (v1.0.0, v1.1.0, ...);
+#   * workflow_dispatch — ручной запуск со страницы Actions: собирает exe
+#     и создаёт/обновляет релиз по версии из pyproject.toml.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# Релиз создаёт и обновляет публикацию — нужен доступ к содержимому.
+permissions:
+  contents: write
+
+# Релиз не отменяет начатый предыдущий прогон того же тега/запуска.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Сборка и публикация релиза
+    runs-on: windows-latest
+    env:
+      # Собранное приложение проверяется запуском без окна.
+      QT_QPA_PLATFORM: offscreen
+      # Кириллица в выводе скриптов: на Windows без этого ломается кодировка.
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Установить uv и Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Окружение с группой сборки
+        run: uv sync --frozen --group build
+
+      # Тег обязан совпадать с версией из pyproject.toml: версии в архиве
+      # («DDUT-Scope-<версия>-windows-x64.zip») и в названии релиза — из pyproject,
+      # и расхождение сделало бы релиз с одним номером, а архив — с другим.
+      - name: Проверить соответствие тега и версии из pyproject.toml
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+          project_version=$(uv run --frozen --group build \
+            python scripts/build_exe.py --print-version)
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$tag_version" != "$project_version" ]; then
+            echo "Тег v$tag_version не совпадает с версией $project_version в pyproject.toml."
+            echo "Измените pyproject.toml и снимите тег заново."
+            exit 1
+          fi
+
+      - name: Собрать exe
+        run: uv run --frozen --group build python scripts/build_exe.py
+
+      - name: Проверить, что exe запускается
+        shell: bash
+        run: |
+          set -e
+          "./dist/DDUT-Scope/DDUT-Scope.exe" & pid=$!
+          sleep 10
+          if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+            echo "exe запустился и продолжает работать"
+          else
+            wait "$pid" || code=$?
+            echo "exe завершился сразу, код: ${code:-неизвестно}"
+            exit 1
+          fi
+
+      # Релиз назван по версии из pyproject (v<версия>):
+      #   * если релиза ещё нет — создаётся новой публикацией;
+      #   * если есть (повторный ручной запуск) — архив заменяется (--clobber),
+      #     существующие заметки и прочие атрибуты не трогаются.
+      # --target $GITHUB_SHA нужен для ручного запуска: релиз по имени v<версия>,
+      # у которого тега ещё нет, привязывается к текущему коммиту.
+      - name: Опубликовать релиз на GitHub Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          project_version=$(uv run --frozen --group build \
+            python scripts/build_exe.py --print-version)
+          tag="v${project_version}"
+          zip_file=$(printf '%s\n' dist/DDUT-Scope-*-windows-x64.zip | head -n1)
+          if [ ! -f "$zip_file" ]; then
+            echo "Архив $zip_file не найден в dist/"
+            exit 1
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$tag" "$zip_file" --repo "$GITHUB_REPOSITORY" --clobber
+            echo "Архив заменён в существующем релизе $tag"
+          else
+            gh release create "$tag" "$zip_file" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "DDUT-Scope ${project_version}" \
+              --generate-notes
+            echo "Создан релиз $tag с архивом $zip_file"
+          fi
