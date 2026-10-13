@@ -69,7 +69,7 @@ exclude = ["real_data", ".venv", "build", "dist"]
 # tests/test_packaging.py::test_dead_code_threshold_is_minimal.
 min_confidence = 60
 # Ложные срабатывания, которые нельзя убрать из кода:
-#   closeEvent — метод вызывается только Qt, а не нашим кодом;
+#   closeEvent, eventFilter — методы вызываются только Qt, а не нашим кодом;
 #   qapp — фикстура pytest, используется через параметры тестов;
 #   fill/alignment/border/number_format — атрибуты ячеек openpyxl читает сама.
-ignore_names = ["closeEvent", "qapp", "fill", "alignment", "border", "number_format"]
+ignore_names = ["closeEvent", "eventFilter", "qapp", "fill", "alignment", "border", "number_format"]

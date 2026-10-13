@@ -69,6 +69,26 @@ class DataMerger:
         return list(groups.values())
 
     @staticmethod
+    def group_by_student(evaluations: Iterable) -> list[tuple[str, list]]:
+        """Группирует оценки по ФИО в порядке появления.
+
+        Возвращает пары ``(ФИО, оценки)``: ФИО, отличающиеся регистром или
+        лишними пробелами, попадают в одну группу. Нужно для матрицы
+        «ученики × критерии» в детальном представлении преподавателя и для
+        подытогов в экспорте проекта.
+        """
+        groups: dict[str, tuple[str, list]] = {}
+        for evaluation in evaluations:
+            display_name = normalize_name(evaluation.student_name)
+            key = name_key(display_name)
+            entry = groups.get(key)
+            if entry is None:
+                groups[key] = (display_name, [evaluation])
+            else:
+                entry[1].append(evaluation)
+        return list(groups.values())
+
+    @staticmethod
     def merge_direction(direction: Direction) -> list[dict]:
         """Сводная таблица (ФИО → сумма баллов) внутри одного направления.
 

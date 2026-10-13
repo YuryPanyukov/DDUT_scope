@@ -35,6 +35,7 @@ from evaluation_app.services.excel_parser import (
     ExcelParser,
     SheetParseResult,
 )
+from evaluation_app.ui.column_controls import enable_column_controls
 from evaluation_app.utils.file_utils import file_name, format_score
 from evaluation_app.utils.validators import (
     FIELD_TITLES,
@@ -124,6 +125,7 @@ class UploadPreviewDialog(QDialog):
         header.setSectionResizeMode(5, QHeaderView.Stretch)
         self.mapping_table.currentCellChanged.connect(lambda *_: self._update_preview())
         layout.addWidget(self.mapping_table, 3)
+        enable_column_controls(self.mapping_table)
 
         preview_row = QHBoxLayout()
         preview_row.addWidget(QLabel("Предпросмотр данных:", self))
@@ -144,6 +146,7 @@ class UploadPreviewDialog(QDialog):
         preview_header.setSectionResizeMode(1, QHeaderView.Stretch)
         preview_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         layout.addWidget(self.preview_table, 3)
+        enable_column_controls(self.preview_table)
 
         layout.addWidget(QLabel("Предупреждения:", self))
         self.warnings_view = QPlainTextEdit(self)
@@ -330,6 +333,7 @@ class ColumnMappingDialog(QDialog):
                 text = "" if value is None else str(value)
                 self.grid.setItem(row_index - 1, column_index, QTableWidgetItem(text))
         layout.addWidget(self.grid, 1)
+        enable_column_controls(self.grid)
 
         form = QFormLayout()
         self.header_spin = QSpinBox(self)

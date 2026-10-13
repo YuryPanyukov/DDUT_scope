@@ -200,14 +200,20 @@ class ExcelExporter:
                 worksheet.cell(row=worksheet.max_row, column=1).font = HEADER_FONT
                 worksheet.append(["ФИО", "Название конкурса", "Итого"])
                 ExcelExporter._style_header_row(worksheet, worksheet.max_row, 3)
-                for evaluation in direction.evaluations:
-                    worksheet.append(
-                        [
-                            evaluation.student_name,
-                            evaluation.competition_name,
-                            float(evaluation.total_score),
-                        ]
-                    )
+                for student_name, evaluations in DataMerger.group_by_student(direction.evaluations):
+                    for evaluation in evaluations:
+                        worksheet.append(
+                            [
+                                student_name,
+                                evaluation.competition_name,
+                                float(evaluation.total_score),
+                            ]
+                        )
+                    # Итоговая сумма баллов ученика — как в его строке ИТОГО.
+                    student_total = float(sum(evaluation.total_score or 0.0 for evaluation in evaluations))
+                    worksheet.append(["", f"Итого по ученику: {student_name}", student_total])
+                    worksheet.cell(row=worksheet.max_row, column=2).font = HEADER_FONT
+                    worksheet.cell(row=worksheet.max_row, column=3).font = HEADER_FONT
                 worksheet.append(["", "Итого по направлению", direction.total_score()])
                 worksheet.cell(row=worksheet.max_row, column=2).font = HEADER_FONT
                 worksheet.cell(row=worksheet.max_row, column=3).font = HEADER_FONT

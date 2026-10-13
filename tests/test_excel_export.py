@@ -95,6 +95,22 @@ def test_export_direction(tmp_path) -> None:
     assert worksheet.max_row == 3
 
 
+def test_export_project_student_subtotals(tmp_path) -> None:
+    """На листах преподавателей есть строка «Итого по ученику» с его суммой."""
+    project = sample_project()
+    path = tmp_path / "Подытоги.xlsx"
+    ExcelExporter.export_project(project, str(path))
+
+    worksheet = openpyxl.load_workbook(str(path))["Петрова А.И."]
+    rows = list(worksheet.iter_rows(values_only=True))
+    subtotals = {row[1]: row[2] for row in rows if row[1] and str(row[1]).startswith("Итого по ученику")}
+
+    assert subtotals == {"Итого по ученику: Иванов Иван": 85, "Итого по ученику: Петрова Анна": 92}
+    # Подытог идёт сразу после строк ученика, итог направления — после них.
+    labels = [row[1] for row in rows]
+    assert labels.index("Итого по ученику: Иванов Иван") < labels.index("Итого по направлению")
+
+
 def test_export_project_with_invalid_sheet_name(tmp_path) -> None:
     project = sample_project()
     project.teachers[0].name = "Иванов/Пётр: тест"

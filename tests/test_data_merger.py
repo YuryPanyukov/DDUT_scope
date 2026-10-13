@@ -63,6 +63,20 @@ def test_merge_skips_nameless_records() -> None:
     assert DataMerger.merge_by_student(project) == []
 
 
+def test_group_by_student() -> None:
+    """Группировка по ФИО сохраняет порядок появления и объединяет регистр."""
+    direction = Direction(name="Д")
+    direction.add_evaluation(student_name="Иванов Иван", competition_name="К1", total_score=10)
+    direction.add_evaluation(student_name="Второй Ученик", competition_name="К2", total_score=7)
+    direction.add_evaluation(student_name=" иванов иван ", competition_name="К3", total_score=5)
+
+    groups = DataMerger.group_by_student(direction.evaluations)
+    assert [name for name, _items in groups] == ["Иванов Иван", "Второй Ученик"]
+    assert [len(items) for _name, items in groups] == [2, 1]
+    assert sum(evaluation.total_score for evaluation in groups[0][1]) == 15
+    assert DataMerger.group_by_student([]) == []
+
+
 def test_merge_direction() -> None:
     direction = Direction(name="Д")
     direction.add_evaluation(student_name="Иванов Иван", competition_name="К1", total_score=10)

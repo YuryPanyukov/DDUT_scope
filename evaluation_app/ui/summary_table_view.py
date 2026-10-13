@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from evaluation_app.ui.column_controls import enable_column_controls
 from evaluation_app.ui.sort_widget import SortWidget
 from evaluation_app.utils.file_utils import format_score
 
@@ -82,6 +83,9 @@ class SummaryTableView(QWidget):
         header.setSectionsClickable(True)
         header.sectionClicked.connect(self._on_header_clicked)
         layout.addWidget(self.table, 1)
+
+        # Столбцы можно двигать, менять им ширину и скрывать (ПКМ по заголовку).
+        enable_column_controls(self.table)
 
         self.sort_widget.sortChanged.connect(self.sortChanged.emit)
         self.search_edit.textChanged.connect(self.searchChanged.emit)

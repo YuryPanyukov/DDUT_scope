@@ -10,11 +10,18 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PyQt5")
 
+from PyQt5.QtCore import QPoint, Qt
 from PyQt5.QtWidgets import QApplication
 
 from evaluation_app.models import Project
 from evaluation_app.services.data_merger import DataMerger
 from evaluation_app.services.excel_parser import ExcelParser, SheetParseResult
+from evaluation_app.ui.column_controls import (
+    HIDE_COLUMN_TEXT,
+    SHOW_ALL_COLUMNS_TEXT,
+    build_header_menu,
+    make_columns_interactive,
+)
 from evaluation_app.ui.main_window import MainWindow
 from evaluation_app.ui.summary_table_view import SummaryTableView
 from evaluation_app.ui.teacher_list_widget import TeacherListWidget
@@ -101,6 +108,189 @@ def test_teacher_list_and_summary_refresh(window) -> None:
     window.teacher_list.select_teacher(window.project.teachers[0].id)
     assert window.direction_view.title_label.text() == "Преподаватель: Петрова А.И."
     assert window.direction_view.tree.topLevelItemCount() == 1
+
+
+def test_direction_view_matrix_shows_student_totals(window) -> None:
+    """Детали преподавателя — матрица «ученики × критерии» с итоговой суммой."""
+    project = Project()
+    teacher = project.add_teacher(name="Тестовый преподаватель")
+    direction = teacher.add_direction(name="Направление 1")
+    direction.add_evaluation(student_name="Иванов Иван", competition_name="Олимпиада", total_score=85)
+    direction.add_evaluation(student_name="Иванов Иван", competition_name="Спорт", total_score=15)
+    direction.add_evaluation(student_name="Петрова Анна", competition_name="Олимпиада", total_score=92)
+
+    window.project = project
+    window._refresh_all()
+    window.teacher_list.select_teacher(teacher.id)
+
+    tree = window.direction_view.tree
+    headers = [tree.headerItem().text(column) for column in range(tree.columnCount())]
+    assert headers == ["Направление / ФИО", "Олимпиада", "Спорт", "Итого баллов"]
+    assert tree.topLevelItemCount() == 1
+
+    direction_item = tree.topLevelItem(0)
+    assert direction_item.text(0) == "Направление 1 (3)"
+    assert direction_item.text(3) == "192"  # итог направления в последнем столбце
+
+    ivanov = direction_item.child(0)
+    assert [ivanov.text(column) for column in range(tree.columnCount())] == [
+        "Иванов Иван",
+        "85",
+        "15",
+        "100",
+    ]
+    anna = direction_item.child(1)
+    assert [anna.text(column) for column in range(tree.columnCount())] == [
+        "Петрова Анна",
+        "92",
+        "",
+        "92",
+    ]
+
+
+def test_direction_view_header_sorting(window) -> None:
+    """Клик по заголовку сортирует учеников: ФИО — по алфавиту, итог — по баллам."""
+    project = Project()
+    teacher = project.add_teacher(name="Тестовый преподаватель")
+    direction = teacher.add_direction(name="Направление 1")
+    direction.add_evaluation(student_name="Вова Викторов", competition_name="Олимпиада", total_score=10)
+    direction.add_evaluation(student_name="Анна Андреева", competition_name="Олимпиада", total_score=100)
+    direction.add_evaluation(student_name="Борис Борисов", competition_name="Олимпиада", total_score=50)
+
+    window.project = project
+    window._refresh_all()
+    window.teacher_list.select_teacher(teacher.id)
+
+    tree = window.direction_view.tree
+    header = tree.header()
+
+    def student_names() -> list[str]:
+        item = tree.topLevelItem(0)
+        return [item.child(index).text(0) for index in range(item.childCount())]
+
+    # Порядок появления из файла, пока не кликали.
+    assert student_names() == ["Вова Викторов", "Анна Андреева", "Борис Борисов"]
+    assert not header.isSortIndicatorShown()
+
+    # Клик по «Направление / ФИО»: по алфавиту, повторный клик — наоборот.
+    header.sectionClicked.emit(0)
+    assert student_names() == ["Анна Андреева", "Борис Борисов", "Вова Викторов"]
+    assert header.sortIndicatorSection() == 0
+    assert header.sortIndicatorOrder() == Qt.AscendingOrder
+
+    header.sectionClicked.emit(0)
+    assert student_names() == ["Вова Викторов", "Борис Борисов", "Анна Андреева"]
+    assert header.sortIndicatorOrder() == Qt.DescendingOrder
+
+    # Клик по «Итого баллов»: первый клик — по убыванию, как в сводной таблице.
+    total_section = tree.columnCount() - 1
+    header.sectionClicked.emit(total_section)
+    assert student_names() == ["Анна Андреева", "Борис Борисов", "Вова Викторов"]
+    assert header.sortIndicatorSection() == total_section
+    assert header.sortIndicatorOrder() == Qt.DescendingOrder
+
+    header.sectionClicked.emit(total_section)
+    assert student_names() == ["Вова Викторов", "Борис Борисов", "Анна Андреева"]
+
+    # Клик по критерию сортировку не меняет (ячейки — текст).
+    header.sectionClicked.emit(1)
+    assert student_names() == ["Вова Викторов", "Борис Борисов", "Анна Андреева"]
+
+
+def _menu_action(menu, prefix: str):
+    """Пункт меню заголовка по началу названия (без разделителей)."""
+    for action in menu.actions():
+        if not action.isSeparator() and action.text().startswith(prefix):
+            return action
+    raise AssertionError(f"в меню нет пункта {prefix!r}: {[a.text() for a in menu.actions()]}")
+
+
+def test_column_controls_manual_layout_and_menu(window) -> None:
+    """Столбцы можно двигать, менять им ширину и скрывать через меню заголовка."""
+    table = window.summary_view.table
+    header = table.horizontalHeader()
+    assert header.sectionsMovable()
+    assert header.contextMenuPolicy() == Qt.CustomContextMenu
+
+    # После перевода в ручной режим ширина устанавливается и сохраняется.
+    make_columns_interactive(table)
+    header.resizeSection(1, 250)
+    assert header.sectionSize(1) == 250
+
+    # ПКМ по заголовку собирает то же самое меню (сигнал контекстного меню).
+    header.customContextMenuRequested.emit(QPoint(header.sectionViewportPosition(1) + 2, 5))
+    menu = table._column_controls_menu
+    assert menu is not None
+    assert "«Итого баллов»" in _menu_action(menu, HIDE_COLUMN_TEXT).text()
+    assert not _menu_action(menu, SHOW_ALL_COLUMNS_TEXT).isEnabled()  # ничего не скрыто
+    menu.close()
+
+
+def test_column_menu_hides_and_restores_columns(qapp) -> None:
+    """Пункты меню скрывают столбец и возвращают все скрытые."""
+    view = SummaryTableView()
+    view.set_records([])
+    table = view.table
+
+    menu = build_header_menu(table, 1)
+    hide_action = _menu_action(menu, HIDE_COLUMN_TEXT)
+    assert hide_action.isEnabled()
+
+    hide_action.trigger()
+    assert table.isColumnHidden(1)
+
+    # Пока есть скрытый столбец, пункт восстановления включён.
+    next_menu = build_header_menu(table, 0)
+    show_all_action = _menu_action(next_menu, SHOW_ALL_COLUMNS_TEXT)
+    assert show_all_action.isEnabled()
+
+    show_all_action.trigger()
+    assert not any(table.isColumnHidden(index) for index in range(table.columnCount()))
+
+    # Скрывать нечего → пункт восстановления выключен.
+    final_menu = build_header_menu(table, 0)
+    assert not _menu_action(final_menu, SHOW_ALL_COLUMNS_TEXT).isEnabled()
+
+
+def test_direction_view_hidden_column_survives_rebuild(window) -> None:
+    """Скрытый столбец матрицы переживает сортировку и смену преподавателя."""
+    project = Project()
+    teacher_one = project.add_teacher(name="Первый преподаватель")
+    direction_one = teacher_one.add_direction(name="Направление 1")
+    direction_one.add_evaluation(student_name="Иванов Иван", competition_name="Олимпиада", total_score=10)
+    direction_one.add_evaluation(student_name="Иванов Иван", competition_name="Спорт", total_score=5)
+
+    teacher_two = project.add_teacher(name="Второй преподаватель")
+    direction_two = teacher_two.add_direction(name="Направление 2")
+    direction_two.add_evaluation(student_name="Петров Пётр", competition_name="Олимпиада", total_score=7)
+    direction_two.add_evaluation(student_name="Петров Пётр", competition_name="Спорт", total_score=3)
+    direction_two.add_evaluation(student_name="Петров Пётр", competition_name="Секция", total_score=2)
+
+    window.project = project
+    window._refresh_all()
+    tree = window.direction_view.tree
+
+    window.teacher_list.select_teacher(teacher_one.id)
+    assert tree.columnCount() == 4  # ФИО | Олимпиада | Спорт | Итого баллов
+
+    hide_action = _menu_action(build_header_menu(tree, 2), HIDE_COLUMN_TEXT)
+    assert "«Спорт»" in hide_action.text()
+    hide_action.trigger()
+    assert tree.isColumnHidden(2)
+
+    # Сортировка пересобирает матрицу — столбец остаётся скрытым.
+    tree.header().sectionClicked.emit(0)
+    assert tree.isColumnHidden(2)
+
+    # Другой преподаватель с иным набором критериев — тоже.
+    window.teacher_list.select_teacher(teacher_two.id)
+    assert tree.columnCount() == 5
+    assert tree.headerItem().text(2) == "Спорт"
+    assert tree.isColumnHidden(2)
+
+    show_all_action = _menu_action(build_header_menu(tree, 0), SHOW_ALL_COLUMNS_TEXT)
+    show_all_action.trigger()
+    assert not tree.isColumnHidden(2)
 
 
 def test_search_and_sorting_signals(window) -> None:
