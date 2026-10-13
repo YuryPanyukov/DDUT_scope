@@ -12,7 +12,7 @@ from typing import Any
 from evaluation_app import config
 
 _YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
-# Служебные слова в именах файлов: «Оценки_Брувель_СГ.xlsx», «Шаблон оценок.xlsx».
+# Служебные слова в именах файлов: «Оценки_2025.xlsx», «Шаблон оценок.xlsx».
 _SERVICE_WORDS: tuple[str, ...] = (
     "оценки", "оценка", "оценок", "оценочный", "оценочная", "лист", "ведомость",
     "протокол", "итоги", "итог", "свод", "сводка", "сводная", "таблица", "шаблон",
@@ -24,7 +24,7 @@ _LEADING_SERVICE_WORDS_RE = re.compile(
     re.IGNORECASE,
 )
 _SERVICE_WORD_SET = {word.lower() for word in _SERVICE_WORDS}
-# «Брувель СГ» → «Брувель С.Г.» (инициалы без точек в именах файлов)
+# Инициалы без точек в именах файлов — точки добавляются (СГ → С.Г.)
 _INITIALS_RE = re.compile(r"\b([А-ЯЁ])([А-ЯЁ])\b")
 
 
@@ -142,7 +142,7 @@ def format_score(value: Any) -> str:
 def safe_file_stem(file_path: str) -> str:
     """Превращает имя файла в название преподавателя по умолчанию.
 
-    «Брувель_СГ.xlsx» → «Брувель С.Г.», «Оценки_Петрова_2025.xlsx» → «Петрова».
+    «Оценки_Петрова_2025.xlsx» → «Петрова»; инициалы «ИВ» → «И.В.».
     """
     stem = os.path.splitext(os.path.basename(str(file_path)))[0]
     stem = stem.replace("_", " ").replace("-", " ")
@@ -161,7 +161,7 @@ def safe_file_stem(file_path: str) -> str:
         stem = base
 
     stem = _INITIALS_RE.sub(r"\1.\2.", stem)
-    # Точки в инициалах сохраняем: «Брувель С.Г.»
+    # Точки в инициалах сохраняем: «С.Г.» из «СГ».
     return re.sub(r"\s+", " ", stem).strip(" ,")
 
 

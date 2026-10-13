@@ -258,7 +258,6 @@ def test_manual_criteria_mode(tmp_path) -> None:
 
 
 def test_safe_file_stem_builds_teacher_name() -> None:
-    assert safe_file_stem("/tmp/Брувель_СГ.xlsx") == "Брувель С.Г."
     assert safe_file_stem("Оценки_Петрова_2025.xlsx") == "Петрова"
     assert safe_file_stem("Админ.xlsx") == "Админ"
     assert safe_file_stem("Критерии_Орлова_АБ.xlsx") == "Орлова А.Б."
